@@ -86,14 +86,17 @@ int init_openssl (BIO *inputbio, BIO *outputbio) {
 
 int create_context (SSL_CTX *context, char *certificateFile, char *keyFile) {
     
-    /* Use ssl3 for encryption */
-    const SSL_METHOD *method = SSLv3_method();
-    
+    /* Use ssl2 or ssl3 for encryption */
+    const SSL_METHOD *method = SSLv23_client_method();
+
     /*Create context*/
     if ((context = SSL_CTX_new(method)) == NULL) {
         fprintf(stderr, "Error: Could not create context\n");
         return -1;
     }
+    
+    /* disable ssl2 */
+    SSL_CTX_set_options(context, SSL_OP_NO_SSLv2);
     
     /* Load certificate into the context */
     if (SSL_CTX_use_certificate_file (context, certificateFile, SSL_FILETYPE_PEM) 
@@ -113,7 +116,7 @@ int create_context (SSL_CTX *context, char *certificateFile, char *keyFile) {
 
 int main () {
 
-    char *host = "https://debatedecide.fit.edu";
+    char *host = "198.105.254.228";
     char *certificateFile = "cert_public.pem";
     char *keyFile = "private.pem";
 
@@ -122,7 +125,7 @@ int main () {
     X509 *certificate = NULL;
     X509_NAME *certificateName = NULL;
     
-    SSL_CTX *context;
+    SSL_CTX *context = NULL;
     SSL *ssl;
     int server = 0;
     int rc, i, tcpfd;
