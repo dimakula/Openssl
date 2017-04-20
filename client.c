@@ -17,7 +17,7 @@
 #include <errno.h>
 #include <string.h>
 
-#define MAXDATASIZE 512
+#define MAXDATASIZE 1024//Maximum data transfer
 #define HOST "163.118.78.40"
 #define PORT "443"
 
@@ -80,13 +80,15 @@ int main () {
     BIO *outputbio = NULL;
     X509 *certificate = NULL;
     X509_NAME *certificateName = NULL;
-    
-    SSL_CTX *context = NULL;
+	
+    //SSL_CTX *context = NULL;
+	SSL_CTX *context;
+	
     SSL *ssl;
     int server = 0;
     int rc, i, tcpfd;
     
-    /* initialize openssl */    
+    /* initialize openssl */ 	
     OpenSSL_add_all_algorithms();
     ERR_load_BIO_strings();
     ERR_load_crypto_strings();
@@ -102,14 +104,16 @@ int main () {
     }
     
     /* Use ssl2 or ssl3 for encryption */
-    const SSL_METHOD *method = SSLv23_client_method();
-
+    //const SSL_METHOD *method = SSLv23_client_method();
+	context = SSL_CTX_new(SSLv23_client_method());
+	
     /*Create context*/
-    if ((context = SSL_CTX_new(method)) == NULL) {
+    //if ((context = SSL_CTX_new(method)) == NULL) {
+	if (context == NULL) {
         fprintf(stderr, "Error: Could not create context\n");
         exit (1);
     }
-    
+	
     /* disable ssl2 */
     SSL_CTX_set_options(context, SSL_OP_NO_SSLv2);
     
@@ -191,6 +195,7 @@ int main () {
     
     /* free resources */
     SSL_CTX_free (context);
+	SSL_shutdown(ssl);
     SSL_free (ssl);
     close (tcpfd);
     X509_free(certificate);
