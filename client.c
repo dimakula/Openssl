@@ -35,9 +35,8 @@ int create_socket (char *host, char *port) {
         return -1;
     }
 
-    // loop through the resulting linked list and connect to whichever socket
-    // we can
     for(p = servinfo; p != NULL; p = p->ai_next) {
+        
         if ((tcpfd = socket(p->ai_family, p->ai_socktype,
                 p->ai_protocol)) == -1) {
             perror("TCP: socket");
@@ -58,65 +57,16 @@ int create_socket (char *host, char *port) {
         return -1;
     }
     
+    printf ("Connection established\n");
     return tcpfd;
-}
-
-int init_openssl (BIO *inputbio, BIO *outputbio) {
-
-    /* initialize openssl */    
-    OpenSSL_add_all_algorithms();
-    ERR_load_BIO_strings();
-    ERR_load_crypto_strings();
-    SSL_load_error_strings();
-
-    /* Initialize the input and output bios */
-    inputbio = BIO_new(BIO_s_file());
-    outputbio = BIO_new_fp(stdout, BIO_NOCLOSE);
-    
-    /*initialize SSL*/
-    if(SSL_library_init() < 0) {
-        BIO_printf(outputbio, "Error: Could not initialize openssl\n");
-        return -1;
-    }
-    
-    return 0;
-
-}
-
-
-int create_context (SSL_CTX *context, char *certificateFile, char *keyFile) {
-    
-    /* Use ssl2 or ssl3 for encryption */
-    const SSL_METHOD *method = SSLv23_client_method();
-
-    /*Create context*/
-    if ((context = SSL_CTX_new(method)) == NULL) {
-        fprintf(stderr, "Error: Could not create context\n");
-        return -1;
-    }
-    
-    /* disable ssl2 */
-    SSL_CTX_set_options(context, SSL_OP_NO_SSLv2);
-    
-    /* Load certificate into the context */
-    if (SSL_CTX_use_certificate_file (context, certificateFile, SSL_FILETYPE_PEM) 
-            <= 0) {
-        fprintf (stderr, "Error: could not load certificate file\n");
-        return -1;
-    }
-    
-    /* Load the private key */
-    if (SSL_CTX_use_PrivateKey_file (context, keyFile, SSL_FILETYPE_PEM) <= 0) {
-        fprintf (stderr, "Error: private key could not be loaded\n");
-        return -1;
-    }
-    
-    return 0;
 }
 
 int main () {
 
-    char *host = "198.105.254.228";
+    char wbuf[1000]="GET /index.html HTTP/1.1\n\n";
+    
+    char *host = "163.118.78.40";
+    char *port = "443";
     char *certificateFile = "cert_public.pem";
     char *keyFile = "private.pem";
 
@@ -130,20 +80,52 @@ int main () {
     int server = 0;
     int rc, i, tcpfd;
     
-    /* initialize openssl local method*/
-    if (init_openssl (inputbio, outputbio) < 0)
-        exit (1);
-        
-    /* create context with client certificate local method */
-    if (create_context (context, certificateFile, keyFile) < 0)
-        exit (1);
+    /* initialize openssl */    
+    OpenSSL_add_all_algorithms();
+    ERR_load_BIO_strings();
+    ERR_load_crypto_strings();
+    SSL_load_error_strings();
+
+    /* Initialize the input and output bios */
+    inputbio = BIO_new(BIO_s_file());
+    outputbio = BIO_new_fp(stdout, BIO_NOCLOSE);
     
-        
+    /*initialize SSL*/
+    if(SSL_library_init() < 0) {
+        BIO_printf(outputbio, "Error: Could not initialize openssl\n");
+        exit (1);
+    }
+    
+    /* Use ssl2 or ssl3 for encryption */
+    const SSL_METHOD *method = SSLv23_client_method();
+
+    /*Create context*/
+    if ((context = SSL_CTX_new(method)) == NULL) {
+        fprintf(stderr, "Error: Could not create context\n");
+        exit (1);
+    }
+    
+    /* disable ssl2 */
+    SSL_CTX_set_options(context, SSL_OP_NO_SSLv2);
+    
+    /* Load certificate into the context */
+    if (SSL_CTX_use_certificate_file (context, certificateFile, SSL_FILETYPE_PEM) 
+            <= 0) {
+        fprintf (stderr, "Error: could not load certificate file\n");
+        exit (1);
+    }
+    
+    /* Load the private key */
+    if (SSL_CTX_use_PrivateKey_file (context, keyFile, SSL_FILETYPE_PEM) <= 0) {
+        fprintf (stderr, "Error: private key could not be loaded\n");
+        exit (1);
+    }
+     
     /* Create new SSL connection state object */
     ssl = SSL_new(context);
     
     /* open up a regular socket */
-    if ((tcpfd = create_socket(host, "8080")) <= 0) {
+    if ((tcpfd = create_socket(host, port)) <= 0) {
         BIO_printf(outputbio, "Error: Failed TCP connection\n");
         exit (1);
     }
@@ -156,14 +138,17 @@ int main () {
     else
         BIO_printf(outputbio, "Successfully established SSL session to: %s.\n", host);
   
-   /* Get the remote certificate into the X509 structure */
+    SSL_set_connect_state(ssl);
+   
+    /* Get the remote certificate into the X509 structure */
     certificate = SSL_get_peer_certificate(ssl);
-    
     if (certificate == NULL)
         BIO_printf(outputbio, "Error: Could not get a certificate from host.\n");
     else
         BIO_printf(outputbio, "Retrieved the server's certificate.\n");
 
+    SSL_write(ssl, wbuf, strlen(wbuf));
+    
     /* get certificates */
     certificateName = X509_NAME_new();
     certificateName = X509_get_subject_name (certificate);
@@ -172,10 +157,26 @@ int main () {
     X509_NAME_print_ex(outputbio, certificateName, 0, 0);
     BIO_printf(outputbio, "\n");
   
-    //bio = BIO_new_connect ("https://debatedecide.fit.edu/proposals.php?organizationID=376&msg=&secure=on:80");
+    /* Write GET request */
+    rc = SSL_write(ssl, wbuf, strlen(wbuf));
+    if(rc <= 0) 
+        printf("%d: %s\n", SSL_get_error(ssl, rc), ERR_error_string(rc, NULL));
     
+    if (SSL_read(ssl, wbuf, sizeof(wbuf)-1) <= 0)
+        BIO_printf (outputbio, "Mission failed, we'll get them next time\n");
+    
+    else
+        printf ("%s\n", wbuf);
+    
+    BIO_printf(outputbio, "Finished connection\n");
+    
+    /* free resources */
     SSL_CTX_free (context);
-    SSL_shutdown (ssl);
-
+    SSL_free (ssl);
+    close (tcpfd);
+    X509_free(certificate);
+    BIO_free (outputbio);
+    BIO_free (inputbio);
+    return 0;
 }
 
