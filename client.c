@@ -18,6 +18,14 @@
 #include <string.h>
 
 #define MAXDATASIZE 512
+#define HOST "163.118.78.40"
+#define PORT "443"
+
+int password_callback (char* buf, int size, int rwflag, void *password) {
+	strncpy(buf, (char*)password, size); 
+	buf[size-1] = '\0';
+	return strlen(buf);
+}
 
 int create_socket (char *host, char *port) {
 
@@ -64,13 +72,11 @@ int create_socket (char *host, char *port) {
 int main () {
 
     char wbuf[1000]="GET /index.html HTTP/1.1\n\n";
-    
-    char *host = "163.118.78.40";
-    char *port = "443";
+
     char *certificateFile = "cert_public.pem";
     char *keyFile = "private.pem";
 
-    BIO *inputbio = NULL;
+    BIO *connection = NULL;
     BIO *outputbio = NULL;
     X509 *certificate = NULL;
     X509_NAME *certificateName = NULL;
@@ -86,8 +92,7 @@ int main () {
     ERR_load_crypto_strings();
     SSL_load_error_strings();
 
-    /* Initialize the input and output bios */
-    inputbio = BIO_new(BIO_s_file());
+    /* Initialize the output BIO */
     outputbio = BIO_new_fp(stdout, BIO_NOCLOSE);
     
     /*initialize SSL*/
@@ -109,36 +114,52 @@ int main () {
     SSL_CTX_set_options(context, SSL_OP_NO_SSLv2);
     
     /* Load certificate into the context */
-    if (SSL_CTX_use_certificate_file (context, certificateFile, SSL_FILETYPE_PEM) 
+    if (SSL_CTX_use_certificate_chain_file (context, certificateFile) 
             <= 0) {
         fprintf (stderr, "Error: could not load certificate file\n");
         exit (1);
     }
+    
+    /* set passwords for private key */
+    SSL_CTX_set_default_passwd_cb(context, password_callback);
+	SSL_CTX_set_default_passwd_cb_userdata(context, "1234567");
     
     /* Load the private key */
     if (SSL_CTX_use_PrivateKey_file (context, keyFile, SSL_FILETYPE_PEM) <= 0) {
         fprintf (stderr, "Error: private key could not be loaded\n");
         exit (1);
     }
-     
+    
+    if (!(connection = BIO_new_connect (HOST ":" PORT))) {
+        BIO_printf (outputbio, "Error: connection failed\n");
+        exit (1);
+    }
+    
+    if (BIO_do_connect (connection) < 0) {
+        BIO_printf (outputbio, "Error: connection to remote failed\n");
+        exit (1);
+    }
+   
     /* Create new SSL connection state object */
     ssl = SSL_new(context);
     
     /* open up a regular socket */
-    if ((tcpfd = create_socket(host, port)) <= 0) {
+    /*if ((tcpfd = create_socket(host, port)) <= 0) {
         BIO_printf(outputbio, "Error: Failed TCP connection\n");
         exit (1);
-    }
+    }*/
+    
+    
 
     /* Attach the SSL session to the socket descriptor */
-    SSL_set_fd(ssl, tcpfd);
+    //SSL_set_fd(ssl, tcpfd);
+    
+    SSL_set_bio (ssl, connection, connection);
     
     if ( SSL_connect(ssl) != 1 )
         BIO_printf(outputbio, "Error: Could not build a SSL session\n");
     else
-        BIO_printf(outputbio, "Successfully established SSL session to: %s.\n", host);
-  
-    SSL_set_connect_state(ssl);
+        BIO_printf(outputbio, "Successfully established SSL session to: %s.\n", HOST);
    
     /* Get the remote certificate into the X509 structure */
     certificate = SSL_get_peer_certificate(ssl);
@@ -146,8 +167,6 @@ int main () {
         BIO_printf(outputbio, "Error: Could not get a certificate from host.\n");
     else
         BIO_printf(outputbio, "Retrieved the server's certificate.\n");
-
-    SSL_write(ssl, wbuf, strlen(wbuf));
     
     /* get certificates */
     certificateName = X509_NAME_new();
@@ -159,7 +178,7 @@ int main () {
   
     /* Write GET request */
     rc = SSL_write(ssl, wbuf, strlen(wbuf));
-    if(rc <= 0) 
+    if(rc <= 0)
         printf("%d: %s\n", SSL_get_error(ssl, rc), ERR_error_string(rc, NULL));
     
     if (SSL_read(ssl, wbuf, sizeof(wbuf)-1) <= 0)
@@ -176,7 +195,7 @@ int main () {
     close (tcpfd);
     X509_free(certificate);
     BIO_free (outputbio);
-    BIO_free (inputbio);
+    BIO_free (connection);
     return 0;
 }
 
